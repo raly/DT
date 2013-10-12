@@ -66,7 +66,7 @@
 				return v === Object(v);
 			},
 			ifArray:function(v){
-				return Object.prototype.toString.apply(a) === '[object Array]';
+				return Object.prototype.toString.apply(v) === '[object Array]';
 			},
 			forEach: Array.prototype.forEach ? function(arr, fn) {
 				arr.forEach(fn);
@@ -129,7 +129,48 @@
                 }else{
                     return false;
                 }
-            } 
+            },
+            setCookie: function(name, value, date, domain, path, secure){//名字、值、过期时间(默认30天)、是否跨域(默认跨域)、访问路径（默认为当前）、是否加密（默认不加密）
+	            var today = new Date(), days = (date) ? date : 30;
+	            today.setTime(today.getTime() + days * 24 * 60 * 60 * 1000);
+	            var s = name + "=" + escape(value) + ";expires=" + today.toGMTString();
+	            if (domain) {
+	                s += ";domain=domain";
+	            }
+	            else {
+	                s += ";domain=192.168.1.187";
+	            }
+	            if (path) {
+	                s += ";path=" + path;
+	            }
+	            else {
+	                s += ";path=/";
+	            }
+	            if (secure) {
+	                s += ";secure";
+	            }
+	            document.cookie = s;
+        	},
+        	getCookie: function(name){
+	            if (document.cookie.length > 0) {
+	                var search = "; " + name + "=";
+	                offset = document.cookie.indexOf(search);
+	                if (offset != -1) {
+	                    offset += (search.length);
+	                    end = document.cookie.indexOf(";", offset);
+	                    if (end == -1) 
+	                        end = document.cookie.length;
+	                    return unescape(document.cookie.substring(offset, end));
+	                    
+	                }
+	                else {
+	                    return "";
+	                }
+	            }
+        	},
+        	deleCookie: function(name){
+            	this.setCookie(name, '', -1);
+        	} 
 	}
 	/*模块加载器*/
 	var DT = function(doc){
@@ -149,19 +190,22 @@
 			Moudle = _Class(),
 			getURL = function(id){
 				//根据MoudleID来获取Moudle真实的url路径
-				return id+".js";
+				//根据自身喜好修改
+				return baseUrl+id+".js";
 			}
-			Loader = _Class();
+			Loader = _Class(),
+			//模块寻址主路径
+			baseUrl = "http://192.168.1.187/Public/";
 		//模块对象
 		Moudle.include({
 			init:function(id){
 				this.id = id;
-				this.status = 0;
-				this.depend = [];
-				this.parent = [];
-				this.factory = noop;
-				this.exports = null;
-				this.type = "js";
+				this.status = arguments[1]||0;
+				this.depend = arguments[2]||[];
+				this.parent = arguments[3]||[];
+				this.factory = arguments[4]||noop;
+				this.exports = arguments[5]||null;
+				this.type = arguments[6]||"js";
 			},
 			//模块编译子模块
 			complie:function(){
@@ -196,20 +240,24 @@
 					//所有依赖都编译完毕
 					this.status = STATUS['success'];
 					this.exports = (this.factory)();
+					if(this.callback){
 					(this.callback).apply(null,[this.exports]);
+					}
 					return ;
 				}
 				_Tool.forEach(tempObj,function(tempObjArray){
 					var key = true;
 					_Tool.forEach(tempObjArray.depend,function(id){
-						if((Loader.cache[id]).status != STATUS['success']){
+						if(!Loader.cache[id] || (Loader.cache[id])['status'] != STATUS['success']){
 							key = false;
 						}
 					});
 					if(key){
 					tempObjArray.status = STATUS['success'];
-					tempObjArray.exports = tempObjArray['factory']();
-					tempObjArray.inform();
+					tempObjArray.exports = tempObjArray['factory'](global);
+					if(tempObjArray.id != Loader.Front){
+						tempObjArray.inform();
+						}
 					}
 				})
 			}
@@ -226,6 +274,8 @@
 		})
 		//加载调度对象
 		Loader.extend({
+			//入口模块
+			Front:null,
 			//模块储藏室
 			cache:{},
 			//模块注册
@@ -244,8 +294,10 @@
 				tempObj['factory'] = factory;
 				if(!tempStr.length){
 					tempObj['status'] = STATUS['success'];
-					tempObj['exports'] = factory();
-					tempObj.inform();
+					tempObj['exports'] = factory(global);
+					if(tempObj.id != Loader.Front){
+						tempObj.inform();
+					}
 				}
 			},
 			//获取完整模块接口
@@ -257,7 +309,7 @@
 					return Loader.cache[id]['exports'];
 				}
 				throw "有问题!";
-				
+
 			},
 			//load方法常规加载JS或者CSS文件到浏览器
 			load:function(mod,callbacks){//(单独作为文件加载器时mod为模块id以及模块类型，默认为js)
@@ -388,16 +440,36 @@
 			},
 			//入口
 			use:function(id,cb){
-				if(!id){
+				var thisScript = document.getElementsByTagName("script")[0],
+				thisSrc = thisScript.getAttribute("base");
+				if(thisSrc){
+					Loader.load({'id':thisSrc},function(){
+						Loader['cache']['$'] = new Moudle('$',4,null,null,null,global.$,null);
+						if(!id){
+							return ;
+						}
+						Loader.Front = id;
+						var tempObj = Loader.cache[id]|| (Loader.cache[id] = new Moudle(id));
+						Loader.load(tempObj,function(){
+							this.complie();
+						});
+						if(cb){
+							tempObj.callback = cb;
+						}
+					});
+				}else{
+					if(!id){
 					return ;
+					}
+					var tempObj = this.cache[id]|| (this.cache[id] = new Moudle(id));
+					this.load(tempObj,function(){
+						this.complie();
+					});
+					if(cb){
+						tempObj.callback = cb;
+					}
 				}
-				var tempObj = this.cache[id]|| (this.cache[id] = new Moudle(id));
-				this.load(tempObj,function(){
-					this.complie();
-				});
-				if(cb){
-					tempObj.callback = cb;
-				}
+				
 			}
 		})
 	return Loader;
@@ -406,3 +478,6 @@
 	global.require = DT.require;
 	global.define = DT.define;
 }(window)
+
+
+
